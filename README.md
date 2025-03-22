@@ -76,7 +76,8 @@ For simplicity, the API is currently implemented in a single file. However, to f
   - **Views**: Handle HTML rendering.  
   - **Controllers**: Manage requests.  
   - **Helpers**: Store utility functions.  
-  - In more complex frameworks, a dedicated **routing file** could also be introduced.  
+  - In more complex frameworks, a dedicated **routing file** could also be introduced.
+  - Here serialization is managed by fastAPI automatically
 
 ### 🛠️ Tests
 - Basic **unit tests** have been included since testing is essential.  
