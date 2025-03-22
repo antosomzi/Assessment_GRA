@@ -46,7 +46,9 @@ The API will be available at: [http://0.0.0.0:8000/](http://0.0.0.0:8000/)
 1. Open [http://0.0.0.0:8000/synchronize/](http://0.0.0.0:8000/synchronize/) in your browser.
 2. Enter `data_q123` in the data folder input field.
 3. Click "Synchronize" to process the sensor data.
-4. View the results showing synchronized sensor frames.
+4. View the results showing one sensor frame exemple.
+5. You can download the full JSON by clicking the button 'Download Complete JSON.
+
 
 ## Running Tests
 
