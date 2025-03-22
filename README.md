@@ -22,8 +22,7 @@ data_q123/
 1. Clone this repository:
 
    ```bash
-   git clone https://github.com/your-repo/lidar-bike-sensor-api.git
-   cd lidar-bike-sensor-api
+   git clone https://github.com/antosomzi/GRA.git
    ```
 
 2. Install dependencies:
