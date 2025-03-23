@@ -145,6 +145,8 @@ def get_html_template() -> str:
                     const data = await response.json();
                     
                     if (response.ok) {
+                        const jsonString = JSON.stringify(data, null, 2);
+                        
                         resultDiv.innerHTML = `
                             <h3>Synchronization successful!</h3>
                             <p>Total frames: ${data.total_frames}</p>
@@ -152,7 +154,21 @@ def get_html_template() -> str:
                             <p>Time range: ${data.time_range.start.toFixed(3)} - ${data.time_range.end.toFixed(3)}</p>
                             <p>Sample frame (first):</p>
                             <pre>${JSON.stringify(data.frames[0], null, 2)}</pre>
+                            
+                            <button id="downloadJson">Download Complete JSON</button>
                         `;
+                        
+                        document.getElementById('downloadJson').addEventListener('click', function() {
+                            const blob = new Blob([jsonString], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'synchronized_data.json';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        });
                     } else {
                         resultDiv.innerHTML = `
                             <h3>Error</h3>

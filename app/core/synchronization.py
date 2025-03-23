@@ -39,13 +39,14 @@ def extract_timestamp_from_filename(filename: str) -> float:
 def get_sensor_data_mapping(folder_path: str, read_function: Callable) -> Dict[float, Dict]:
     """
     Create a mapping between timestamps and sensor data.
+    Returns a dictionary with timestamps sorted in ascending order.
 
     Args:
         folder_path (str): Path to the folder containing sensor files
         read_function (Callable): Function to read sensor data
 
     Returns:
-        Dict[float, Dict]: Mapping of timestamps to sensor data and file paths
+        Dict[float, Dict]: Mapping of timestamps to sensor data and file paths, sorted by timestamp
     """
     data_mapping = {}
 
@@ -69,7 +70,10 @@ def get_sensor_data_mapping(folder_path: str, read_function: Callable) -> Dict[f
             # Skip files with invalid format silently
             pass
 
-    return data_mapping
+    # Create a new sorted dictionary
+    sorted_data_mapping = {k: data_mapping[k] for k in sorted(data_mapping.keys())}
+    
+    return sorted_data_mapping
 
 def get_sensors_time_bounds(
     image_data: Dict,
@@ -79,18 +83,19 @@ def get_sensors_time_bounds(
 ) -> Tuple[float, float]:
     """
     Find common time bounds across all sensors.
+    Assumes data is already sorted by timestamp.
 
     Args:
-        image_data: Dictionary of image data
-        lidar_data: Dictionary of LiDAR data
-        imu_data: List of IMU measurements
-        gps_data: List of GPS measurements
+        image_data: Dictionary of image data (keys are timestamps)
+        lidar_data: Dictionary of LiDAR data (keys are timestamps)
+        imu_data: List of IMU measurements (sorted by timestamp)
+        gps_data: List of GPS measurements (sorted by timestamp)
 
     Returns:
         Tuple[float, float]: Start and end timestamps
     """
-    image_times = np.array(sorted(image_data.keys()))
-    lidar_times = np.array(sorted(lidar_data.keys()))
+    image_times = np.array(list(image_data.keys()))
+    lidar_times = np.array(list(lidar_data.keys()))
     imu_times = np.array([entry["timestamp"] for entry in imu_data])
     gps_times = np.array([entry["timestamp"] for entry in gps_data])
 
@@ -107,116 +112,140 @@ def get_valid_reference_timestamps(
 ) -> Tuple[np.ndarray, str]:
     """
     Determine valid reference timestamps based on the slowest sensor.
+    Assumes dictionaries have keys already sorted by timestamp.
 
     Args:
-        image_data: Dictionary of image data
-        lidar_data: Dictionary of LiDAR data
+        image_data: Dictionary of image data (keys are timestamps)
+        lidar_data: Dictionary of LiDAR data (keys are timestamps)
         start_time: Start of valid time range
         end_time: End of valid time range
 
     Returns:
         Tuple[np.ndarray, str]: Array of reference timestamps and sensor name
     """
+    # Filter timestamps within valid range
     image_times = np.array([
-        ts for ts in sorted(image_data.keys())
+        ts for ts in image_data.keys()
         if start_time <= ts <= end_time
     ])
 
     lidar_times = np.array([
-        ts for ts in sorted(lidar_data.keys())
+        ts for ts in lidar_data.keys()
         if start_time <= ts <= end_time
     ])
 
     return (image_times, "Camera") if len(image_times) <= len(lidar_times) else (lidar_times, "LiDAR")
 
-def find_closest_data(target_ts: float, data_dict: Dict) -> Optional[Dict]:
+def find_closest_data(
+    target_timestamps: np.ndarray,
+    data_dict: Dict
+) -> List[Dict]:
     """
-    Find sensor data closest to target timestamp.
+    Find sensor data closest to multiple target timestamps in a vectorized way.
+    Assumes dictionary keys are already sorted by timestamp.
 
     Args:
-        target_ts: Target timestamp
-        data_dict: Dictionary of sensor data
+        target_timestamps: Array of target timestamps
+        data_dict: Dictionary of sensor data with timestamps as keys
 
     Returns:
-        Optional[Dict]: Closest sensor data or None if dictionary is empty
+        List[Dict]: List of closest sensor data for each target timestamp
     """
     if not data_dict:
-        return None
+        return [None] * len(target_timestamps)
 
-    timestamps = np.array(list(data_dict.keys()))
-    idx = np.searchsorted(timestamps, target_ts)
+    data_timestamps = np.array(list(data_dict.keys()))
 
-    if idx == 0:
-        closest_ts = timestamps[0]
-    elif idx == len(timestamps):
-        closest_ts = timestamps[-1]
-    else:
-        before = timestamps[idx - 1]
-        after = timestamps[idx]
-        closest_ts = before if abs(before - target_ts) < abs(after - target_ts) else after
+    indices = np.searchsorted(data_timestamps, target_timestamps)
 
-    return data_dict[closest_ts]
-
-def find_closest_imu_data(target_ts: float, imu_data: List[Dict]) -> Dict:
-    """
-    Find IMU data closest to target timestamp using binary search.
-    
-    Args:
-        target_ts: Target timestamp
-        imu_data: List of IMU measurements (assumed to be sorted by timestamp)
-        
-    Returns:
-        Dict: Closest IMU measurement
-    
-    Time Complexity: O(log n) vs O(n) for the previous version
-    """
-    timestamps = np.array([entry["timestamp"] for entry in imu_data])
-    
-    # Binary search for the insertion point (sorted list)
-    idx = np.searchsorted(timestamps, target_ts)
-    
     # Handle edge cases
-    if idx == 0:
-        return imu_data[0]
-    if idx == len(timestamps):
-        return imu_data[-1]
-    
-    # Compare distances to find closest
-    if abs(timestamps[idx] - target_ts) < abs(timestamps[idx-1] - target_ts):
-        return imu_data[idx]
-    else:
-        return imu_data[idx-1]
+    indices = np.maximum(indices, 1)
+    indices = np.minimum(indices, len(data_timestamps) - 1)
 
-def interpolate_gps_data(target_ts: float, gps_data: List[Dict]) -> Dict:
+    # Calculate distances to determine if before or after is closer using a vectorized approach
+    before_distances = np.abs(target_timestamps - data_timestamps[indices - 1])
+    after_distances = np.abs(data_timestamps[indices] - target_timestamps)
+
+    closest_indices = np.where(before_distances <= after_distances, indices - 1, indices)
+    closest_timestamps = data_timestamps[closest_indices]
+
+    return [data_dict[ts] for ts in closest_timestamps]
+
+def find_closest_imu_data(
+    target_timestamps: np.ndarray,
+    imu_data: List[Dict]
+) -> List[Dict]:
     """
-    Interpolate GPS data for given timestamp.
-    
+    Find IMU data closest to multiple target timestamps.
+    Assumes imu_data is already sorted by timestamp.
+
     Args:
-        target_ts: Target timestamp
-        gps_data: List of GPS measurements
-        
+        target_timestamps: Array of target timestamps
+        imu_data: List of IMU measurements (sorted by timestamp)
+
     Returns:
-        Dict: Interpolated GPS data
+        List[Dict]: List of closest IMU measurements for each target timestamp
     """
-    timestamps = np.array([entry["timestamp"] for entry in gps_data])
-    
-    if target_ts <= timestamps[0]:
-        return gps_data[0]
-    if target_ts >= timestamps[-1]:
-        return gps_data[-1]
-    
-    idx = np.searchsorted(timestamps, target_ts)
-    t1, t2 = timestamps[idx - 1], timestamps[idx]
-    weight = (target_ts - t1) / (t2 - t1)
-    
-    entry1, entry2 = gps_data[idx - 1], gps_data[idx]
-    
-    return {
-        "timestamp": target_ts,
-        "latitude": (1 - weight) * entry1["latitude"] + weight * entry2["latitude"],
-        "longitude": (1 - weight) * entry1["longitude"] + weight * entry2["longitude"],
-        "altitude": (1 - weight) * entry1["altitude"] + weight * entry2["altitude"]
-    }
+    imu_timestamps = np.array([entry["timestamp"] for entry in imu_data])
+
+    indices = np.searchsorted(imu_timestamps, target_timestamps)
+
+    # Handle edge cases
+    indices = np.maximum(indices, 1)
+    indices = np.minimum(indices, len(imu_timestamps) - 1)
+    # Calculate distances to determine if before or after is closer a vectorized approach
+    before_distances = np.abs(target_timestamps - imu_timestamps[indices - 1])
+    after_distances = np.abs(imu_timestamps[indices] - target_timestamps)
+
+    closest_indices = np.where(before_distances <= after_distances, indices - 1, indices)
+
+    return [imu_data[idx] for idx in closest_indices]
+
+def interpolate_gps_data(
+    target_timestamps: np.ndarray,
+    gps_data: List[Dict]
+) -> List[Dict]:
+    """
+    Interpolate GPS data for multiple given timestamps.
+    Assumes gps_data is already sorted by timestamp.
+
+    Args:
+        target_timestamps: Array of target timestamps
+        gps_data: List of GPS measurements (sorted by timestamp)
+
+    Returns:
+        List[Dict]: List of interpolated GPS data for each target timestamp
+    """
+    gps_timestamps = np.array([entry["timestamp"] for entry in gps_data])
+
+    results = []
+
+    for target_ts in target_timestamps:
+        # Handle edge cases
+        if target_ts <= gps_timestamps[0]:
+            results.append(gps_data[0])
+            continue
+        if target_ts >= gps_timestamps[-1]:
+            results.append(gps_data[-1])
+            continue
+
+        # Find indices for linear interpolation
+        idx = np.searchsorted(gps_timestamps, target_ts)
+        t1, t2 = gps_timestamps[idx - 1], gps_timestamps[idx]
+        weight = (target_ts - t1) / (t2 - t1)
+
+        entry1, entry2 = gps_data[idx - 1], gps_data[idx]
+
+        interpolated = {
+            "timestamp": target_ts,
+            "latitude": (1 - weight) * entry1["latitude"] + weight * entry2["latitude"],
+            "longitude": (1 - weight) * entry1["longitude"] + weight * entry2["longitude"],
+            "altitude": (1 - weight) * entry1["altitude"] + weight * entry2["altitude"]
+        }
+
+        results.append(interpolated)
+
+    return results
 
 def synchronize_all_sensors(
     reference_timestamps: np.ndarray,
@@ -227,51 +256,53 @@ def synchronize_all_sensors(
 ) -> List[Dict]:
     """
     Synchronize data from all sensors.
+    Assumes all data structures are already sorted by timestamp.
 
     Args:
         reference_timestamps: Array of reference timestamps
-        image_data: Dictionary of image data
-        lidar_data: Dictionary of LiDAR data
-        imu_data: List of IMU measurements
-        gps_data: List of GPS measurements
+        image_data: Dictionary of image data (keys are timestamps)
+        lidar_data: Dictionary of LiDAR data (keys are timestamps)
+        imu_data: List of IMU measurements (sorted by timestamp)
+        gps_data: List of GPS measurements (sorted by timestamp)
 
     Returns:
         List[Dict]: List of synchronized sensor frames
     """
+    images = find_closest_data(reference_timestamps, image_data)
+    lidars = find_closest_data(reference_timestamps, lidar_data)
+    imus = find_closest_imu_data(reference_timestamps, imu_data)
+    gps_data_interpolated = interpolate_gps_data(reference_timestamps, gps_data)
+
     synchronized_frames = []
-
-    for timestamp in reference_timestamps:
-        image = find_closest_data(timestamp, image_data)
-        lidar = find_closest_data(timestamp, lidar_data)
-        imu = find_closest_imu_data(timestamp, imu_data)
-        gps = interpolate_gps_data(timestamp, gps_data)
-
-        # Store data and filenames (not paths)
+    for i, timestamp in enumerate(reference_timestamps):
         synchronized_frames.append({
             "timestamp": timestamp,
-            "image": image['data'] if image else None,
-            "image_path": image['path'] if image else None,  # This is just the filename
-            "lidar": lidar['data'] if lidar else None,
-            "lidar_path": lidar['path'] if lidar else None,  # This is just the filename
-            "imu": imu,
-            "gps": gps
+            "image": images[i]['data'] if images[i] else None,
+            "image_path": images[i]['path'] if images[i] else None,
+            "lidar": lidars[i]['data'] if lidars[i] else None,
+            "lidar_path": lidars[i]['path'] if lidars[i] else None,
+            "imu": imus[i],
+            "gps": gps_data_interpolated[i]
         })
+    if synchronized_frames:
+        print(f"Reference timestamps: {synchronized_frames[0]['timestamp']} - {synchronized_frames[-1]['timestamp']}")
+    else:
+        print("Warning: No synchronized frames were generated")
 
     return synchronized_frames
 
 def main() -> List[Dict]:
     """
     Main function executing sensor synchronization pipeline.
-    
+
     Returns:
         List[Dict]: List of synchronized sensor frames
     """
     # Get the directory of the current script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Navigate up two directories to find the data folder
-    # This is a common pattern to reference data relative to the script location
     data_root = os.path.join(script_dir, "..", "..", "data_q123")
-    
+
     # Create paths for each sensor data source
     sensor_paths = {
         "lidar": os.path.join(data_root, "lidar"),
@@ -279,24 +310,24 @@ def main() -> List[Dict]:
         "imu": os.path.join(data_root, "imu.json"),
         "gps": os.path.join(data_root, "gps.json")
     }
-    
+
     # Load sensor data
     image_data = get_sensor_data_mapping(sensor_paths["images"], read_image)
     lidar_data = get_sensor_data_mapping(sensor_paths["lidar"], read_lidar)
     imu_data = read_json_file(sensor_paths["imu"])
     gps_data = read_json_file(sensor_paths["gps"])
-    
-    # Get time bounds and reference timestamps
+
+    # Get time bounds
     start_time, end_time = get_sensors_time_bounds(image_data, lidar_data, imu_data, gps_data)
+    # Get valid reference timestamps
     reference_timestamps, reference_sensor = get_valid_reference_timestamps(
         image_data, lidar_data, start_time, end_time
     )
-    
     # Synchronize sensors
     synchronized_frames = synchronize_all_sensors(
         reference_timestamps, image_data, lidar_data, imu_data, gps_data
     )
-    
+
     return synchronized_frames
 
 if __name__ == "__main__":
