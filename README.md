@@ -3,7 +3,7 @@
 This API provides synchronization capabilities for multi-sensor data collected from a bike equipped with LiDAR, camera, IMU, and GPS sensors. It processes temporal data to align measurements from different sensors with varying sampling rates.
 
 ## Getting Started
-
+https://github.com/user-attachments/assets/2a65c31c-94e3-4101-9d57-666134ee3782
 ### Installation
 
 1. Clone this repository:
