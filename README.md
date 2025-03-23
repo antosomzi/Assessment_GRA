@@ -4,19 +4,6 @@ This API provides synchronization capabilities for multi-sensor data collected f
 
 ## Getting Started
 
-### Prerequisites
-
-- Python 3.8 or higher
-- Sensor data folder with the following structure:
-
-```
-data_q123/
-├── images/        # Camera image files
-├── lidar/         # LiDAR point cloud files
-├── imu.json       # IMU measurements
-└── gps.json       # GPS coordinates
-```
-
 ### Installation
 
 1. Clone this repository:
